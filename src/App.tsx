@@ -5,8 +5,8 @@
 
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, Stars, Float, Text } from '@react-three/drei';
-import { Bloom, EffectComposer, Noise, Vignette } from '@react-three/postprocessing';
+import { OrbitControls, PerspectiveCamera, Stars, Float, Text, Html } from '@react-three/drei';
+import { Bloom, EffectComposer, Noise, Vignette, Glitch } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 import { motion, AnimatePresence } from 'motion/react';
@@ -21,7 +21,7 @@ const SPEED = 20;
 
 // --- Components ---
 
-const Terrain = ({ virtualPos, cameraAngle, shipVirtualPos }: { virtualPos: React.MutableRefObject<THREE.Vector2>, cameraAngle: React.MutableRefObject<number>, shipVirtualPos: React.MutableRefObject<THREE.Vector2> }) => {
+const Terrain = ({ virtualPos, cameraAngle, shipVirtualPos, globalDangerBoundsRef }: { virtualPos: React.MutableRefObject<THREE.Vector2>, cameraAngle: React.MutableRefObject<number>, shipVirtualPos: React.MutableRefObject<THREE.Vector2>, globalDangerBoundsRef: React.MutableRefObject<THREE.Vector2> }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   
   const dangerZones = useMemo(() => {
@@ -39,7 +39,8 @@ const Terrain = ({ virtualPos, cameraAngle, shipVirtualPos }: { virtualPos: Reac
       uColor: { value: new THREE.Color("#ff00ff") },
       uHeight: { value: 45.0 },
       uTime: { value: 0 },
-      uDangerZones: { value: dangerZones }
+      uDangerZones: { value: dangerZones },
+      uGlobalDangerBounds: { value: new THREE.Vector2(-99999, -99999) }
     },
     vertexShader: `
       uniform vec2 uVirtualPos;
@@ -117,6 +118,7 @@ const Terrain = ({ virtualPos, cameraAngle, shipVirtualPos }: { virtualPos: Reac
       uniform vec3 uColor;
       uniform float uTime;
       uniform vec4 uDangerZones[4];
+      uniform vec2 uGlobalDangerBounds;
       varying vec2 vVirtualPos;
       varying float vHeight;
       varying float vDist;
@@ -159,6 +161,17 @@ const Terrain = ({ virtualPos, cameraAngle, shipVirtualPos }: { virtualPos: Reac
         color = mix(uColor, vec3(0.0, 1.0, 1.0), peakFactor);
         
         float danger = getDangerIntensity(vVirtualPos);
+        
+        float cellY = floor(vVirtualPos.y / 4.0) * 4.0;
+        if (cellY >= uGlobalDangerBounds.x && cellY <= uGlobalDangerBounds.y) {
+            vec2 cell = floor(vVirtualPos / 4.0);
+            float hash = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+            if (hash > 0.2) {
+                float flicker = sin(uTime * 30.0 + hash * 20.0) * 0.5 + 0.5;
+                danger = max(danger, flicker);
+            }
+        }
+        
         if (danger > 0.0) {
           color = mix(color, vec3(1.0, 0.1, 0.1), danger);
           gridAlpha = max(gridAlpha, danger * 0.85);
@@ -210,6 +223,7 @@ const Terrain = ({ virtualPos, cameraAngle, shipVirtualPos }: { virtualPos: Reac
     material.uniforms.uVirtualPos.value.copy(virtualPos.current);
     material.uniforms.uCameraAngle.value = cameraAngle.current;
     material.uniforms.uTime.value = time;
+    material.uniforms.uGlobalDangerBounds.value.copy(globalDangerBoundsRef.current);
   });
 
   return (
@@ -296,8 +310,42 @@ const Scene = () => {
   const virtualAngle = useRef(0);
   const cameraAngle = useRef(0);
 
+  const [alertState, setAlertState] = useState<'none' | 'approaching' | 'active'>('none');
+  const alertStateRef = useRef<'none' | 'approaching' | 'active'>('none');
+  const nextGlobalDangerTime = useRef(15 + Math.random() * 10);
+  const globalDangerBoundsRef = useRef(new THREE.Vector2(-99999, -99999));
+
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
+    const time = state.clock.getElapsedTime();
+    
+    // Global Danger Logic
+    if (time >= nextGlobalDangerTime.current) {
+        nextGlobalDangerTime.current = time + 45 + Math.random() * 30;
+        
+        const distanceToStart = 300;
+        const zoneLength = 200 + Math.random() * 200;
+        
+        const startY = Math.floor((shipVirtualPos.current.y + distanceToStart) / 4.0) * 4.0;
+        const endY = startY + zoneLength;
+        
+        globalDangerBoundsRef.current.set(startY, endY);
+    }
+    
+    const currentY = shipVirtualPos.current.y;
+    const bounds = globalDangerBoundsRef.current;
+    
+    let newAlertState: 'none' | 'approaching' | 'active' = 'none';
+    if (currentY >= bounds.x && currentY <= bounds.y) {
+        newAlertState = 'active';
+    } else if (currentY >= bounds.x - 250 && currentY < bounds.x) {
+        newAlertState = 'approaching';
+    }
+    
+    if (newAlertState !== alertStateRef.current) {
+        alertStateRef.current = newAlertState;
+        setAlertState(newAlertState);
+    }
     
     // 1. Calculate the objective canyon path at the ship's position
     const z = shipVirtualPos.current.y;
@@ -372,7 +420,17 @@ const Scene = () => {
       <pointLight position={[-10, 10, 10]} intensity={1} color="#ff00ff" />
 
       <Meteors />
-      <Terrain virtualPos={sceneOriginVirtualPos} cameraAngle={cameraAngle} shipVirtualPos={shipVirtualPos} />
+      <Terrain virtualPos={sceneOriginVirtualPos} cameraAngle={cameraAngle} shipVirtualPos={shipVirtualPos} globalDangerBoundsRef={globalDangerBoundsRef} />
+
+      {alertState !== 'none' && (
+        <Html center zIndexRange={[100, 0]}>
+          <div className="pointer-events-none select-none flex items-center justify-center">
+            <h1 className="text-red-600 text-7xl md:text-9xl font-black tracking-[0.2em] animate-pulse" style={{ textShadow: '0 0 40px rgba(220, 38, 38, 0.8), 0 0 80px rgba(220, 38, 38, 0.4)', fontFamily: 'monospace' }}>
+              ALERT
+            </h1>
+          </div>
+        </Html>
+      )}
 
       <EffectComposer>
         <Bloom 
@@ -383,6 +441,12 @@ const Scene = () => {
         />
         <Noise opacity={0.05} />
         <Vignette eskil={false} offset={0.1} darkness={1.1} />
+        <Glitch 
+          active={alertState === 'active'} 
+          delay={new THREE.Vector2(0.05, 0.2)} 
+          duration={new THREE.Vector2(0.05, 0.2)} 
+          strength={new THREE.Vector2(0.02, 0.08)} 
+        />
       </EffectComposer>
     </>
   );
