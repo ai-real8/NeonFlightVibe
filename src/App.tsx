@@ -21,15 +21,25 @@ const SPEED = 20;
 
 // --- Components ---
 
-const Terrain = ({ virtualPos, cameraAngle }: { virtualPos: React.MutableRefObject<THREE.Vector2>, cameraAngle: React.MutableRefObject<number> }) => {
+const Terrain = ({ virtualPos, cameraAngle, shipVirtualPos }: { virtualPos: React.MutableRefObject<THREE.Vector2>, cameraAngle: React.MutableRefObject<number>, shipVirtualPos: React.MutableRefObject<THREE.Vector2> }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   
+  const dangerZones = useMemo(() => {
+    const arr = [];
+    for(let i=0; i<4; i++) arr.push(new THREE.Vector4(0, 0, -9999, 0));
+    return arr;
+  }, []);
+  const nextSpawnTime = useRef(2);
+  const zoneIndex = useRef(0);
+
   const shaderArgs = useMemo(() => ({
     uniforms: {
       uVirtualPos: { value: new THREE.Vector2() },
       uCameraAngle: { value: 0 },
       uColor: { value: new THREE.Color("#ff00ff") },
       uHeight: { value: 45.0 },
+      uTime: { value: 0 },
+      uDangerZones: { value: dangerZones }
     },
     vertexShader: `
       uniform vec2 uVirtualPos;
@@ -105,9 +115,38 @@ const Terrain = ({ virtualPos, cameraAngle }: { virtualPos: React.MutableRefObje
     `,
     fragmentShader: `
       uniform vec3 uColor;
+      uniform float uTime;
+      uniform vec4 uDangerZones[4];
       varying vec2 vVirtualPos;
       varying float vHeight;
       varying float vDist;
+
+      float getDangerIntensity(vec2 vPos) {
+        float intensity = 0.0;
+        for(int i=0; i<4; i++) {
+          vec4 zone = uDangerZones[i];
+          float age = uTime - zone.z;
+          if (age > 0.0 && age < 20.0) {
+            vec2 localPos = vPos - zone.xy;
+            if (localPos.x >= 0.0 && localPos.x < 16.0 && localPos.y >= 0.0 && localPos.y < 16.0) {
+              float col = floor(localPos.x / 4.0);
+              float row = floor(localPos.y / 4.0);
+              float bitIndex = row * 4.0 + col;
+              
+              float bit = mod(floor(zone.w / pow(2.0, bitIndex)), 2.0);
+              if (bit > 0.5) {
+                float flicker = sin(uTime * 15.0 + bitIndex) * 0.5 + 0.5;
+                float fastFlicker = sin(uTime * 50.0) * 0.5 + 0.5;
+                flicker = mix(flicker, fastFlicker, 0.3);
+                
+                float fade = smoothstep(20.0, 18.0, age) * smoothstep(0.0, 2.0, age);
+                intensity = max(intensity, flicker * fade);
+              }
+            }
+          }
+        }
+        return intensity;
+      }
 
       void main() {
         float gridSize = 4.0;
@@ -118,6 +157,12 @@ const Terrain = ({ virtualPos, cameraAngle }: { virtualPos: React.MutableRefObje
         vec3 color = uColor;
         float peakFactor = smoothstep(10.0, 30.0, vHeight);
         color = mix(uColor, vec3(0.0, 1.0, 1.0), peakFactor);
+        
+        float danger = getDangerIntensity(vVirtualPos);
+        if (danger > 0.0) {
+          color = mix(color, vec3(1.0, 0.1, 0.1), danger);
+          gridAlpha = max(gridAlpha, danger * 0.85);
+        }
         
         float fog = smoothstep(40.0, 160.0, vDist);
         
@@ -134,11 +179,37 @@ const Terrain = ({ virtualPos, cameraAngle }: { virtualPos: React.MutableRefObje
     transparent: true,
   }), []);
 
-  useFrame(() => {
+  useFrame((state) => {
     if (!meshRef.current) return;
+    const time = state.clock.getElapsedTime();
+    
+    if (time > nextSpawnTime.current && shipVirtualPos) {
+      nextSpawnTime.current = time + 10 + Math.random() * 10;
+      
+      const spawnY = shipVirtualPos.current.y + 300 + Math.random() * 200;
+      const canyonX = Math.sin(spawnY * 0.002) * 200.0 + Math.sin(spawnY * 0.005) * 50.0;
+      const spawnX = canyonX + (Math.random() - 0.5) * 60.0;
+      
+      const gridX = Math.floor(spawnX / 4.0) * 4.0;
+      const gridY = Math.floor(spawnY / 4.0) * 4.0;
+      
+      let pattern = 0;
+      const numCells = 1 + Math.floor(Math.random() * 16);
+      let availableBits = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
+      for(let i=0; i<numCells; i++) {
+        const idx = Math.floor(Math.random() * availableBits.length);
+        const bit = availableBits.splice(idx, 1)[0];
+        pattern |= (1 << bit);
+      }
+      
+      dangerZones[zoneIndex.current].set(gridX, gridY, time, pattern);
+      zoneIndex.current = (zoneIndex.current + 1) % 4;
+    }
+
     const material = meshRef.current.material as THREE.ShaderMaterial;
     material.uniforms.uVirtualPos.value.copy(virtualPos.current);
     material.uniforms.uCameraAngle.value = cameraAngle.current;
+    material.uniforms.uTime.value = time;
   });
 
   return (
@@ -301,7 +372,7 @@ const Scene = () => {
       <pointLight position={[-10, 10, 10]} intensity={1} color="#ff00ff" />
 
       <Meteors />
-      <Terrain virtualPos={sceneOriginVirtualPos} cameraAngle={cameraAngle} />
+      <Terrain virtualPos={sceneOriginVirtualPos} cameraAngle={cameraAngle} shipVirtualPos={shipVirtualPos} />
 
       <EffectComposer>
         <Bloom 
