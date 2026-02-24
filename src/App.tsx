@@ -79,8 +79,8 @@ const Terrain = ({ virtualPos, cameraAngle }: { virtualPos: React.MutableRefObje
         float c = cos(uCameraAngle);
         float s = sin(uCameraAngle);
         vec2 virtualOffset = vec2(
-          forwardXZ.x * c - forwardXZ.y * s,
-          forwardXZ.x * s + forwardXZ.y * c
+          forwardXZ.x * c + forwardXZ.y * s,
+          -forwardXZ.x * s + forwardXZ.y * c
         );
         
         vVirtualPos = uVirtualPos + virtualOffset;
@@ -260,8 +260,8 @@ const Scene = () => {
     if (shipRef.current) {
       // Ship banking and rotation relative to camera view
       const relativeAngle = virtualAngle.current - cameraAngle.current;
-      shipRef.current.rotation.y = relativeAngle;
-      shipRef.current.rotation.z = turnRate * 4.0;
+      shipRef.current.rotation.y = -relativeAngle;
+      shipRef.current.rotation.z = -turnRate * 4.0;
       shipRef.current.rotation.x = -0.2;
     }
 
@@ -274,7 +274,7 @@ const Scene = () => {
 
     // 6. Rotate Stars to match virtual world
     if (starsRef.current) {
-      starsRef.current.rotation.y = -cameraAngle.current;
+      starsRef.current.rotation.y = cameraAngle.current;
     }
   });
 
