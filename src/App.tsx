@@ -12,6 +12,9 @@ import { createNoise2D } from 'simplex-noise';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plane, Wind, Zap, Gauge, Navigation } from 'lucide-react';
 
+// Global state for HUD to read without triggering React renders on the whole tree
+export const globalShipPosition = { x: 0, y: 0, z: 0 };
+
 // --- Constants ---
 const CHUNK_SIZE = 100;
 const CHUNK_DIVISIONS = 50;
@@ -369,6 +372,13 @@ const Scene = () => {
     shipVirtualPos.current.x += Math.sin(virtualAngle.current) * speed * dt;
     shipVirtualPos.current.y += Math.cos(virtualAngle.current) * speed * dt;
     
+    // Update global position for HUD
+    globalShipPosition.x = shipVirtualPos.current.x;
+    globalShipPosition.y = shipVirtualPos.current.y;
+    // We can use the noise function to get the actual height if we want, but for now let's just use a base altitude + variation
+    const noiseVal = (Math.sin(shipVirtualPos.current.x * 0.012) + Math.cos(shipVirtualPos.current.y * 0.012)) * 0.5;
+    globalShipPosition.z = 1200 + noiseVal * 50;
+    
     // The scene origin (0,0,0) is 20 units behind the ship's nose in the scene (z=-20)
     // We calculate its virtual position based on the camera's current heading
     sceneOriginVirtualPos.current.x = shipVirtualPos.current.x - Math.sin(cameraAngle.current) * 20;
@@ -455,9 +465,11 @@ const Scene = () => {
 const HUD = () => {
   const [speed, setSpeed] = useState(420);
   const [altitude, setAltitude] = useState(1200);
+  const [pos, setPos] = useState({ x: 0, y: 0, z: 1200 });
 
   useEffect(() => {
     const interval = setInterval(() => {
+      setPos({ x: globalShipPosition.x, y: globalShipPosition.y, z: globalShipPosition.z });
       setSpeed(s => s + (Math.random() - 0.5) * 2);
       setAltitude(a => a + (Math.random() - 0.5) * 5);
     }, 100);
@@ -491,7 +503,7 @@ const HUD = () => {
         </div>
         <div className="text-right">
           <div className="text-xs opacity-60 mb-1">Coordinates</div>
-          <div className="text-sm">X: 124.52 Y: 882.11 Z: --.---</div>
+          <div className="text-sm">X: {pos.x.toFixed(2)} Y: {pos.y.toFixed(2)} Z: {pos.z.toFixed(2)}</div>
         </div>
       </div>
 
