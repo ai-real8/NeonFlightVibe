@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #050505;
+  color: #fff;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Custom Magenta color for Tailwind */
+.text-magenta-500 { color: #ff00ff; }
+.bg-magenta-500 { background-color: #ff00ff; }
+.bg-magenta-900\/30 { background-color: rgba(255, 0, 255, 0.3); }

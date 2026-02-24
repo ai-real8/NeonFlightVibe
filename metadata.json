@@ -1,0 +1,5 @@
+{
+  "name": "Neon Flight Simulator",
+  "description": "A 3D flight simulator over a procedurally generated neon wireframe landscape.",
+  "requestFramePermissions": []
+}
